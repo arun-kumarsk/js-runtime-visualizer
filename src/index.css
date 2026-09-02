@@ -1,0 +1,107 @@
+@import 'tailwindcss';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Design tokens — a calm, dark "instrument panel" palette.
+   Light values live under :root; .dark overrides them. */
+@theme {
+  --color-panel: var(--panel);
+  --color-panel-muted: var(--panel-muted);
+  --color-edge: var(--edge);
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-accent: var(--accent);
+  --color-stack: #38bdf8;
+  --color-webapi: #f59e0b;
+  --color-macrotask: #a78bfa;
+  --color-microtask: #34d399;
+  --font-mono: ui-monospace, 'SF Mono', 'Fira Code', Menlo, monospace;
+}
+
+:root {
+  --panel: #ffffff;
+  --panel-muted: #f1f5f9;
+  --edge: #e2e8f0;
+  --ink: #0f172a;
+  --ink-muted: #64748b;
+  --accent: #2563eb;
+}
+
+.dark {
+  --panel: #0f1729;
+  --panel-muted: #16203a;
+  --edge: #25304d;
+  --ink: #e2e8f0;
+  --ink-muted: #8a99b8;
+  --accent: #38bdf8;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--panel-muted);
+  color: var(--ink);
+  font-family:
+    system-ui,
+    -apple-system,
+    sans-serif;
+}
+
+/* Current-execution highlight in the editor */
+.cm-exec-line {
+  background: color-mix(in oklab, var(--color-accent) 13%, transparent);
+}
+.cm-exec-expr {
+  background: color-mix(in oklab, var(--color-accent) 32%, transparent);
+  border-radius: 2px;
+}
+
+/* Breakpoint gutter */
+.cm-bp-gutter {
+  width: 14px;
+  cursor: pointer;
+}
+.cm-bp-gutter:hover {
+  background: color-mix(in oklab, var(--color-ink-muted) 12%, transparent);
+}
+.cm-bp-dot {
+  width: 9px;
+  height: 9px;
+  margin: 4px auto 0;
+  border-radius: 9999px;
+  background: #ef4444;
+}
+
+/* Execution heatmap gutter */
+.cm-heat-gutter {
+  width: 4px;
+}
+.cm-heat-cell {
+  width: 4px;
+  height: 100%;
+  background: var(--color-webapi);
+}
+
+/* Inline value bubble */
+.cm-value-bubble {
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 9999px;
+  font-size: 11px;
+  color: var(--color-microtask);
+  background: color-mix(in oklab, var(--color-microtask) 16%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}

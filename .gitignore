@@ -1,0 +1,14 @@
+node_modules
+dist
+dist-ssr
+coverage
+*.local
+.DS_Store
+
+# Editor
+.idea
+
+# Logs
+logs
+*.log
+npm-debug.log*
