@@ -18,7 +18,7 @@ interface QueuePanelProps {
  */
 export function QueuePanel({ title, accent, items, hint }: QueuePanelProps) {
   return (
-    <Panel title={title} accent={accent} badge={items.length || undefined}>
+    <Panel title={title} tag="FIFO" accent={accent} badge={items.length || undefined}>
       {items.length === 0 ? (
         <p className="text-xs italic text-ink-muted">empty</p>
       ) : (

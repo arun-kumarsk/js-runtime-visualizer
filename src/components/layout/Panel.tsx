@@ -6,6 +6,8 @@ interface PanelProps {
   title: string
   /** Optional accent color (CSS color) shown as a left bar + title tint. */
   accent?: string
+  /** Small pill next to the title (e.g. ordering discipline: "LIFO" / "FIFO"). */
+  tag?: string
   /** Right-aligned content in the header (e.g. a count badge). */
   badge?: ReactNode
   /** Start collapsed. */
@@ -21,6 +23,7 @@ interface PanelProps {
 export function Panel({
   title,
   accent,
+  tag,
   badge,
   defaultCollapsed = false,
   className,
@@ -58,6 +61,20 @@ export function Panel({
           >
             {title}
           </span>
+          {tag && (
+            <span
+              className="rounded border border-edge px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-ink-muted"
+              title={
+                tag === 'LIFO'
+                  ? 'Last In, First Out'
+                  : tag === 'FIFO'
+                    ? 'First In, First Out'
+                    : undefined
+              }
+            >
+              {tag}
+            </span>
+          )}
         </button>
         {badge != null && (
           <span className="text-xs text-ink-muted">{badge}</span>
