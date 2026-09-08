@@ -2,9 +2,9 @@
 
 # 🛰️ JS Runtime Visualizer
 
-### Type JavaScript. Watch it *think*.
+### A time-travel visualizer for the JavaScript runtime.
 
-**A scrubbable, time-travel debugger for the JavaScript runtime** — see the call stack breathe, closures light up, timers count down, and the event loop sweep callbacks from the queues onto the stack. Microtasks drain before macrotasks, right in front of you.
+**Type JavaScript and watch it execute** — see the call stack breathe, closures light up, timers count down, and the event loop sweep callbacks from the queues onto the stack. Microtasks drain before macrotasks, right in front of you. Step, scrub, and rewind it all.
 
 <br/>
 
