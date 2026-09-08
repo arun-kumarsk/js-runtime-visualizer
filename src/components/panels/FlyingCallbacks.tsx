@@ -28,6 +28,7 @@ interface Flight {
 const REGION_COLOR: Record<string, string> = {
   callbackq: 'var(--color-macrotask)',
   microq: 'var(--color-microtask)',
+  webapis: 'var(--color-webapi)',
 }
 
 /** Centre-top of a region panel in viewport coords (matches a fixed overlay). */
@@ -66,6 +67,22 @@ export function FlyingCallbacks() {
       dst = 'callbackq'
       label = snap.webApis[0].callbackName
       color = REGION_COLOR.callbackq
+    } else if (snap.kind === 'return' && prev) {
+      // A built-in on the stack registers a callback into a section: the token
+      // flies from the Call Stack to Web APIs (setTimeout/setInterval) or the
+      // Microtask Queue (queueMicrotask / Promise.then / .catch / .finally).
+      const newTimer = snap.webApis.find((w) => !prev.webApis.some((p) => p.id === w.id))
+      if (newTimer) {
+        src = 'stack'
+        dst = 'webapis'
+        label = newTimer.callbackName
+        color = REGION_COLOR.webapis
+      } else if (snap.microtaskQueue.length > prev.microtaskQueue.length) {
+        src = 'stack'
+        dst = 'microq'
+        label = snap.microtaskQueue[snap.microtaskQueue.length - 1]?.callbackName || 'microtask'
+        color = REGION_COLOR.microq
+      }
     }
     if (!src || !dst) return null
     const from = anchor(src)
