@@ -217,7 +217,7 @@ export class Interpreter {
 
     // Timers already due at script end (e.g. setTimeout(…, 0)) move to the
     // callback queue now — before microtasks drain, so they visibly wait there.
-    yield* this.expireDueTimers()
+    this.expireDueTimers()
 
     // Microtasks queued during the sync script run before any macrotask.
     yield* this.drainMicrotasks()
@@ -227,8 +227,10 @@ export class Interpreter {
     this.phase = 'macrotask'
     for (;;) {
       if (this.macrotaskQueue.length > 0) {
+        // Emit before dequeuing so the callback is visible in the queue on this
+        // step; running it is then the next step.
+        yield* this.emit('task', this.macrotaskQueue[0].callbackNode, global)
         const job = this.macrotaskQueue.shift()!
-        yield* this.emit('task', job.callbackNode, global)
         try {
           yield* job.run()
         } catch (e) {
@@ -237,7 +239,7 @@ export class Interpreter {
         }
         // Timers that came due while the macrotask ran queue before the next
         // microtask checkpoint.
-        yield* this.expireDueTimers()
+        this.expireDueTimers()
         yield* this.drainMicrotasks()
       } else if (this.webApis.length > 0) {
         const fireAt = Math.min(...this.webApis.map((t) => t.fireAt))
@@ -246,7 +248,7 @@ export class Interpreter {
         // before the clock advances and they move to the queue.
         yield* this.emit('timer', earliest.callbackNode, global)
         this.clock = fireAt
-        yield* this.expireDueTimers()
+        this.expireDueTimers()
       } else {
         break
       }
@@ -336,11 +338,13 @@ export class Interpreter {
 
   /**
    * Move every timer whose delay has already elapsed (`fireAt <= clock`) out of
-   * Web APIs and into the macrotask queue, in fire order. A timer's hop to the
-   * queue is driven by its delay elapsing — not by the microtask queue draining
-   * — so a `setTimeout(…, 0)` sits in the callback queue *while* microtasks run.
+   * Web APIs and into the macrotask queue, in fire order. This is a silent state
+   * transition — no dedicated step — so it happens "async" between steps; the
+   * queued callback becomes visible on the next emitted snapshot. A timer's hop
+   * is driven by its delay elapsing (not by the microtask queue draining), so a
+   * `setTimeout(…, 0)` already sits in the callback queue while microtasks run.
    */
-  private *expireDueTimers(): Generator<Step, void> {
+  private expireDueTimers(): void {
     const due = this.webApis
       .filter((t) => t.fireAt <= this.clock)
       .sort((a, b) => a.seq - b.seq)
@@ -350,7 +354,6 @@ export class Interpreter {
       if (t.kind === 'interval') {
         this.webApis.push({ ...t, fireAt: this.clock + t.delay, seq: this.eventSeq++ })
       }
-      yield* this.emit('timer', t.callbackNode, this.globalEnv)
     }
   }
 
