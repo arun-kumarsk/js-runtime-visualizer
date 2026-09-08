@@ -93,6 +93,10 @@ export function AstInspector() {
         <p className="text-xs italic text-ink-muted">Run some code to see its syntax tree.</p>
       ) : (
         <div className="flex h-full flex-col">
+          <p className="mb-2 shrink-0 text-[11px] leading-snug text-ink-muted">
+            <span className="font-medium text-ink">Abstract Syntax Tree</span> — your code parsed
+            into nested nodes. The highlighted node is executing now; click any node to explain it.
+          </p>
           <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto">
             <AstRow
               node={ast}
