@@ -44,45 +44,55 @@ export function FlyingCallbacks() {
   const index = useVisualizerStore((s) => s.index)
   const snapshots = useVisualizerStore((s) => s.snapshots)
 
-  // A flight is a pure function of the current step. The panels don't move, so
-  // reading their positions here (committed layout) is stable.
+  // A flight is a pure function of the step: diff each region against the
+  // previous snapshot and animate whichever callback moved between sections.
+  // The panels don't move, so reading their positions here is stable.
   const flight = useMemo<Flight | null>(() => {
     if (!snap) return null
     const prev = index > 0 ? snapshots[index - 1] : undefined
+    if (!prev) return null
+
+    const stackGrew = snap.callStack.length > prev.callStack.length
+    const topName = snap.callStack[snap.callStack.length - 1]?.fnName || 'callback'
+    // Item present now but not before (the one that just arrived in a region).
+    const added = <T extends { id: string; callbackName: string }>(now: T[], before: T[]) =>
+      now.find((x) => !before.some((p) => p.id === x.id))?.callbackName || 'callback'
+
     let src: string | null = null
     let dst: string | null = null
     let label = ''
     let color = ''
-    // A queued callback lands on the stack: fire the flight on the `call` step
-    // where the frame actually appears — so the pop-out (queue) and pop-in
-    // (stack) happen together in this single step, bridged by the token.
-    if (snap.kind === 'call' && (prev?.kind === 'task' || prev?.kind === 'microtask')) {
-      src = prev.kind === 'task' ? 'callbackq' : 'microq'
-      dst = 'stack'
-      label = snap.callStack[snap.callStack.length - 1]?.fnName || 'callback'
-      color = src === 'callbackq' ? REGION_COLOR.callbackq : REGION_COLOR.microq
-    } else if (snap.kind === 'timer' && snap.webApis[0]) {
-      // A timer elapses: it moves from Web APIs into the callback queue.
+
+    if (snap.webApis.length < prev.webApis.length && snap.macrotaskQueue.length > prev.macrotaskQueue.length) {
+      // Timer elapsed: Web APIs → Callback Queue.
       src = 'webapis'
       dst = 'callbackq'
-      label = snap.webApis[0].callbackName
+      label = added(snap.macrotaskQueue, prev.macrotaskQueue)
       color = REGION_COLOR.callbackq
-    } else if (snap.kind === 'return' && prev) {
-      // A built-in on the stack registers a callback into a section: the token
-      // flies from the Call Stack to Web APIs (setTimeout/setInterval) or the
-      // Microtask Queue (queueMicrotask / Promise.then / .catch / .finally).
-      const newTimer = snap.webApis.find((w) => !prev.webApis.some((p) => p.id === w.id))
-      if (newTimer) {
-        src = 'stack'
-        dst = 'webapis'
-        label = newTimer.callbackName
-        color = REGION_COLOR.webapis
-      } else if (snap.microtaskQueue.length > prev.microtaskQueue.length) {
-        src = 'stack'
-        dst = 'microq'
-        label = snap.microtaskQueue[snap.microtaskQueue.length - 1]?.callbackName || 'microtask'
-        color = REGION_COLOR.microq
-      }
+    } else if (snap.macrotaskQueue.length < prev.macrotaskQueue.length && stackGrew) {
+      // Macrotask dispatched: Callback Queue → Call Stack.
+      src = 'callbackq'
+      dst = 'stack'
+      label = topName
+      color = REGION_COLOR.callbackq
+    } else if (snap.microtaskQueue.length < prev.microtaskQueue.length && stackGrew) {
+      // Microtask dispatched: Microtask Queue → Call Stack.
+      src = 'microq'
+      dst = 'stack'
+      label = topName
+      color = REGION_COLOR.microq
+    } else if (snap.webApis.length > prev.webApis.length) {
+      // A timer was registered: Call Stack → Web APIs.
+      src = 'stack'
+      dst = 'webapis'
+      label = added(snap.webApis, prev.webApis)
+      color = REGION_COLOR.webapis
+    } else if (snap.microtaskQueue.length > prev.microtaskQueue.length) {
+      // A microtask was registered: Call Stack → Microtask Queue.
+      src = 'stack'
+      dst = 'microq'
+      label = added(snap.microtaskQueue, prev.microtaskQueue)
+      color = REGION_COLOR.microq
     }
     if (!src || !dst) return null
     const from = anchor(src)
