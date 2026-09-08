@@ -109,8 +109,9 @@ export const useVisualizerStore = create<VisualizerState>()(
           s.index = 0
           s.error = result.error
           s.status = result.snapshots.length === 0 && result.error ? 'error' : 'ready'
-          // Auto-play the freshly computed timeline.
-          s.playing = result.snapshots.length > 1
+          // Run only computes the timeline; it stays paused at the start so the
+          // user drives playback (Play / Step) themselves.
+          s.playing = false
         })
       } catch (e) {
         set((s) => {
