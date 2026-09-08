@@ -86,6 +86,16 @@ user.score = user.score + 10
 console.log(user.name, 'has', user.score, 'points')
 `,
   },
+  {
+    id: 'var-loop-settimeout',
+    title: 'The classic var loop trap',
+    description: 'Why does this log 3, 3, 3 instead of 0, 1, 2? All callbacks share one var i.',
+    category: 'basic',
+    code: `for (var i = 0; i < 3; i++) {
+  setTimeout(() => console.log(i), 1000)
+}
+`,
+  },
 ]
 
 /** Deeper "aha" moments — event loop, closures, promises, async/await. */
@@ -109,9 +119,37 @@ console.log('D')
 `,
   },
   {
+    id: 'hoisting',
+    title: 'Hoisting: var vs function',
+    description: "A favourite 'what's the output?': var hoists as undefined, function declarations hoist fully.",
+    category: 'advanced',
+    code: `console.log(greet())
+console.log(x)
+var x = 5
+console.log(x)
+
+function greet() {
+  return 'hello'
+}
+`,
+  },
+  {
+    id: 'type-coercion',
+    title: 'Type coercion quirks',
+    description: 'The classic == and + puzzles interviewers love to ask.',
+    category: 'advanced',
+    code: `console.log(1 + '2')
+console.log('5' - 2)
+console.log(0 == false)
+console.log(null == undefined)
+console.log(null == 0)
+console.log(typeof NaN)
+`,
+  },
+  {
     id: 'closure-in-loop',
     title: 'Closures in a loop (let vs var)',
-    description: 'let gives each iteration its own binding; var shares one.',
+    description: 'Each let iteration captures its own i (0,1,2); every var closure shares one (3,3,3).',
     category: 'advanced',
     code: `const withLet = []
 for (let i = 0; i < 3; i++) {
@@ -157,6 +195,22 @@ console.log(inc(), inc(), inc())
 `,
   },
   {
+    id: 'currying',
+    title: 'Currying',
+    description: 'add(1)(2)(3) — each call returns a function that closes over the earlier arguments.',
+    category: 'advanced',
+    code: `function add(a) {
+  return function (b) {
+    return function (c) {
+      return a + b + c
+    }
+  }
+}
+
+console.log(add(1)(2)(3))
+`,
+  },
+  {
     id: 'promise-chain',
     title: 'Promise chain',
     description: 'Each .then schedules a microtask with the previous result.',
@@ -190,8 +244,8 @@ console.log('2: sync continues')
   },
   {
     id: 'debounce',
-    title: 'Debounce with setTimeout',
-    description: 'clearTimeout cancels the pending timer on each rapid call.',
+    title: 'Debounce (implement it)',
+    description: 'A common interview task: only the last of three rapid calls fires — earlier timers get cleared.',
     category: 'advanced',
     code: `function debounce(fn, ms) {
   let timer

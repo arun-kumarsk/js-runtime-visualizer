@@ -127,6 +127,69 @@ describe('synchronous interpreter', () => {
     expect(r.error).toBeNull()
     expect(consoleLines(r)).toEqual(['5 3 3'])
   })
+
+  it('returns false for every relational comparison involving NaN', () => {
+    const r = runProgram(`
+      console.log(NaN <= 1, NaN >= 1, 1 <= NaN, 1 >= NaN, NaN < 1, NaN > 1)
+      console.log(2 <= 3, 3 <= 3, 'a' < 'b', 'b' <= 'b')
+    `)
+    expect(r.error).toBeNull()
+    expect(consoleLines(r)).toEqual([
+      'false false false false false false',
+      'true true true true',
+    ])
+  })
+
+  it('lets a named function expression recurse by its own name without leaking it', () => {
+    const r = runProgram(`
+      const f = function fac(n) { return n <= 1 ? 1 : n * fac(n - 1) }
+      console.log(f(5), typeof fac)
+    `)
+    expect(r.error).toBeNull()
+    expect(consoleLines(r)).toEqual(['120 undefined'])
+  })
+
+  it('coerces objects and arrays via ToPrimitive in + and ==', () => {
+    const r = runProgram(`
+      console.log('' + [1, 2, 3])
+      console.log({} + 1)
+      console.log([1, 2] + [3, 4])
+      console.log([1] == 1, [] == 0, {} == 1)
+      console.log(['a'] < ['b'])
+    `)
+    expect(r.error).toBeNull()
+    expect(consoleLines(r)).toEqual([
+      '1,2,3',
+      '[object Object]1',
+      '1,23,4',
+      'true true false',
+      'true',
+    ])
+  })
+
+  it('supports logical assignment with short-circuit (no RHS eval when skipped)', () => {
+    const r = runProgram(`
+      let a = 0; a ||= 5
+      let b = 1; b &&= 7
+      let c = null; c ??= 9
+      let d = 3; d ??= 100
+      let calls = 0
+      function rhs() { calls = calls + 1; return 1 }
+      let e = 2; e ||= rhs()
+      console.log(a, b, c, d, calls)
+    `)
+    expect(r.error).toBeNull()
+    expect(consoleLines(r)).toEqual(['5 7 9 3 0'])
+  })
+
+  it('supports the in operator for objects and arrays', () => {
+    const r = runProgram(`
+      console.log('a' in { a: 1 }, 'b' in { a: 1 })
+      console.log(0 in [10, 20], 2 in [10, 20], 'length' in [1])
+    `)
+    expect(r.error).toBeNull()
+    expect(consoleLines(r)).toEqual(['true false', 'true false true'])
+  })
 })
 
 describe('determinism & time-travel', () => {
@@ -169,6 +232,20 @@ describe('determinism & time-travel', () => {
       return s.environments[s.activeEnvId] === prev.environments[prev.activeEnvId]
     })
     expect(reused).toBe(true)
+  })
+
+  it('shows a mutated array binding at its point-in-time value (no stale cached repr)', () => {
+    const r = runProgram(`const xs = []; xs.push(1); xs.push(2); xs.push(3)`)
+    expect(r.error).toBeNull()
+    // The `xs` binding repr must progress with the array, not stay frozen at […0].
+    const reprs = new Set<string>()
+    for (const s of r.snapshots)
+      for (const env of Object.values(s.environments)) {
+        const b = env.bindings.find((x) => x.name === 'xs')
+        if (b?.value?.repr) reprs.add(b.value.repr)
+      }
+    expect(reprs.has('[…0]')).toBe(true)
+    expect(reprs.has('[…3]')).toBe(true)
   })
 })
 
@@ -290,6 +367,36 @@ describe('promises & microtasks', () => {
     `)
     expect(r.error).toBeNull()
     expect(consoleLines(r)).toEqual(['p1', 'p2', 'timeout'])
+  })
+
+  it('defers thenable adoption so a promise-of-a-promise costs extra ticks', () => {
+    const r = runProgram(`
+      const inner = Promise.resolve('inner')
+      new Promise((res) => res(inner)).then((v) => console.log('adopted', v))
+      Promise.resolve().then(() => console.log('t1')).then(() => console.log('t2')).then(() => console.log('t3'))
+    `)
+    expect(r.error).toBeNull()
+    expect(consoleLines(r)).toEqual(['t1', 't2', 'adopted inner', 't3'])
+  })
+
+  it('treats Promise.resolve(promise) as an identity passthrough', () => {
+    const r = runProgram(`
+      const p = Promise.resolve(1)
+      console.log(Promise.resolve(p) === p)
+    `)
+    expect(r.error).toBeNull()
+    expect(consoleLines(r)).toEqual(['true'])
+  })
+
+  it('does not abort the program when a timer callback throws', () => {
+    const r = runProgram(`
+      setTimeout(() => { throw 'boom' }, 0)
+      setTimeout(() => console.log('second'), 0)
+    `)
+    expect(r.error).toBeNull()
+    const out = consoleLines(r)
+    expect(out).toContain('second')
+    expect(out.some((l) => l.includes('Uncaught') && l.includes('boom'))).toBe(true)
   })
 
   it('supports queueMicrotask', () => {

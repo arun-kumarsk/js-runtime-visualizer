@@ -229,7 +229,12 @@ export class Interpreter {
       if (this.macrotaskQueue.length > 0) {
         const job = this.macrotaskQueue.shift()!
         yield* this.emit('task', job.callbackNode, global)
-        yield* job.run()
+        try {
+          yield* job.run()
+        } catch (e) {
+          if (e instanceof ThrowSignal) this.reportUncaught(e.value, job.callbackNode)
+          else throw e
+        }
         // Timers that came due while the macrotask ran queue before the next
         // microtask checkpoint.
         yield* this.expireDueTimers()
@@ -359,7 +364,12 @@ export class Interpreter {
       // Show the microtask waiting in the queue before it's dequeued and run.
       yield* this.emit('microtask', this.microtaskQueue[0].node, this.globalEnv)
       const mj = this.microtaskQueue.shift()!
-      yield* mj.run()
+      try {
+        yield* mj.run()
+      } catch (e) {
+        if (e instanceof ThrowSignal) this.reportUncaught(e.value, mj.node)
+        else throw e
+      }
     }
     this.phase = prev
   }
@@ -396,9 +406,12 @@ export class Interpreter {
     const p = this.promiseOf(ref)
     if (p.state !== 'pending') return
     if (value instanceof Ref && !isNativeId(value.id) && isPromiseObject(this.heap.get(value))) {
-      // Adopt the inner promise's eventual state.
-      this.addSettleListener(value, (state, v) =>
-        state === 'fulfilled' ? this.resolvePromise(ref, v) : this.rejectPromise(ref, v),
+      // Resolving with a thenable is a PromiseResolveThenableJob: it runs on the
+      // microtask queue, and subscribing to the (already-settled) inner promise
+      // defers the outer settlement by a further microtask. So adoption is never
+      // synchronous — it costs ~2 ticks, matching real engines.
+      this.enqueueMicrotask('resolve', 'adopt thenable', 'anonymous', this.program, () =>
+        this.adoptThenable(ref, value),
       )
       return
     }
@@ -406,6 +419,27 @@ export class Interpreter {
     p.value = value
     p.rev++
     this.fireListeners(p)
+  }
+
+  // eslint-disable-next-line require-yield
+  private *adoptThenable(ref: Ref, inner: Ref): Generator<Step, void> {
+    // Subscribe to the inner promise; when it settles, schedule the outer
+    // promise's settlement as a *further* microtask (the second adoption tick).
+    this.addSettleListener(inner, (state, v) => {
+      this.enqueueMicrotask('resolve', 'adopt thenable', 'anonymous', this.program, () =>
+        this.settleAdopted(ref, state, v),
+      )
+    })
+  }
+
+  // eslint-disable-next-line require-yield
+  private *settleAdopted(
+    ref: Ref,
+    state: 'fulfilled' | 'rejected',
+    value: RV,
+  ): Generator<Step, void> {
+    if (state === 'fulfilled') this.resolvePromise(ref, value)
+    else this.rejectPromise(ref, value)
   }
 
   private rejectPromise(ref: Ref, reason: RV): void {
@@ -705,7 +739,9 @@ export class Interpreter {
     const cached = this.envViewCache.get(env.id)
     if (cached && cached.rev === env.rev) return cached.view
     const bindings: BindingView[] = []
+    let cacheable = true
     for (const [name, b] of env.bindings) {
+      if (b.initialized && this.reprVolatile(b.value)) cacheable = false
       bindings.push({
         name,
         value: b.initialized ? this.valueView(b.value) : null,
@@ -721,8 +757,22 @@ export class Interpreter {
       parentId: env.parent?.id ?? null,
       bindings,
     }
-    this.envViewCache.set(env.id, { rev: env.rev, view })
+    // Only cache when no binding embeds another object's mutable state in its
+    // repr (arrays/promises), since env.rev doesn't bump when that target
+    // mutates — a cached view would go stale and corrupt time-travel.
+    if (cacheable) this.envViewCache.set(env.id, { rev: env.rev, view })
     return view
+  }
+
+  /**
+   * True when a value's serialized `repr` depends on ANOTHER object's mutable
+   * state — i.e. a ref to a heap array (`[…N]`) or promise (`Promise <state>`).
+   * Object (`{…}`) and function (`ƒ name`) reprs are stable, so they don't count.
+   */
+  private reprVolatile(v: RV): boolean {
+    if (!(v instanceof Ref) || isNativeId(v.id)) return false
+    const kind = this.heap.get(v).kind
+    return kind === 'array' || kind === 'promise'
   }
 
   private serializeHeap(): Record<string, HeapNodeView> {
@@ -735,15 +785,19 @@ export class Interpreter {
     const cached = this.heapViewCache.get(obj.id)
     if (cached && cached.rev === obj.rev) return cached.view
     let view: HeapNodeView
+    let cacheable = true
     if (obj.kind === 'object') {
+      cacheable = ![...obj.props.values()].some((v) => this.reprVolatile(v))
       view = {
         id: obj.id,
         kind: 'object',
         entries: [...obj.props].map(([key, value]) => ({ key, value: this.valueView(value) })),
       }
     } else if (obj.kind === 'array') {
+      cacheable = !obj.elements.some((v) => this.reprVolatile(v))
       view = { id: obj.id, kind: 'array', elements: obj.elements.map((v) => this.valueView(v)) }
     } else if (obj.kind === 'promise') {
+      cacheable = !this.reprVolatile(obj.value)
       view = { id: obj.id, kind: 'promise', state: obj.state, value: this.valueView(obj.value) }
     } else {
       view = {
@@ -753,7 +807,9 @@ export class Interpreter {
         closureEnvId: obj.closureEnv?.id ?? null,
       }
     }
-    this.heapViewCache.set(obj.id, { rev: obj.rev, view })
+    // Skip caching when an entry/element embeds a mutable array/promise repr,
+    // since this object's rev doesn't bump when that referenced target mutates.
+    if (cacheable) this.heapViewCache.set(obj.id, { rev: obj.rev, view })
     return view
   }
 
@@ -1029,14 +1085,30 @@ export class Interpreter {
       }
       case 'FunctionExpression':
       case 'ArrowFunctionExpression': {
-        const name = node.type === 'FunctionExpression' ? (node.id?.name ?? '') : ''
-        return this.heap.allocFunction(name, node, env)
+        if (node.type === 'FunctionExpression' && node.id) {
+          // Named function expression: bind its own name (read-only) in a
+          // wrapper scope that's the function's closure env, so the body can
+          // recurse by that name without leaking it to the enclosing scope.
+          const wrapper = this.newEnv('block', env, node.id.name)
+          const ref = this.heap.allocFunction(node.id.name, node, wrapper)
+          wrapper.declareOwn(node.id.name, 'const', ref, true)
+          return ref
+        }
+        return this.heap.allocFunction('', node, env)
       }
       case 'UnaryExpression':
         return yield* this.evalUnary(node, env)
       case 'UpdateExpression':
         return yield* this.evalUpdate(node, env)
       case 'BinaryExpression': {
+        if (node.operator === 'in') {
+          const key = yield* this.evalExpr(node.left as ESTree.Expression, env)
+          const obj = yield* this.evalExpr(node.right, env)
+          return this.inOperator(key, obj, node)
+        }
+        if (node.operator === 'instanceof') {
+          this.unsupported(node, "operator 'instanceof'")
+        }
         const left = yield* this.evalExpr(node.left as ESTree.Expression, env)
         const right = yield* this.evalExpr(node.right, env)
         return this.binary(node.operator, left, right)
@@ -1181,6 +1253,11 @@ export class Interpreter {
       yield* this.assign(target, value, env)
       return value
     }
+    // Logical assignment (||=, &&=, ??=) — short-circuits: read the target,
+    // and only evaluate + assign the RHS when the operator calls for it.
+    if (node.operator === '||=' || node.operator === '&&=' || node.operator === '??=') {
+      return yield* this.logicalAssign(node, env)
+    }
     // compound assignment (+=, -=, ...)
     const op = node.operator.slice(0, -1)
     const rhs = yield* this.evalExpr(node.right as ESTree.Expression, env)
@@ -1194,6 +1271,35 @@ export class Interpreter {
       const { obj, key } = yield* this.resolveMember(target, env)
       const cur = this.readMember(obj, key, target)
       const value = this.binary(op, cur, rhs)
+      this.writeMember(obj, key, value, target)
+      return value
+    }
+    this.unsupported(target, 'assignment target')
+  }
+
+  private *logicalAssign(
+    node: ESTree.AssignmentExpression,
+    env: Environment,
+  ): Generator<Step, RV> {
+    const target = node.left
+    const shouldAssign = (cur: RV): boolean =>
+      node.operator === '||='
+        ? !this.truthy(cur)
+        : node.operator === '&&='
+          ? this.truthy(cur)
+          : cur === null || cur === undefined // ??=
+    if (target.type === 'Identifier') {
+      const cur = this.getVar(target.name, env, target)
+      if (!shouldAssign(cur)) return cur
+      const value = yield* this.evalExpr(node.right as ESTree.Expression, env)
+      this.setVar(target.name, value, env, target)
+      return value
+    }
+    if (target.type === 'MemberExpression') {
+      const { obj, key } = yield* this.resolveMember(target, env)
+      const cur = this.readMember(obj, key, target)
+      if (!shouldAssign(cur)) return cur
+      const value = yield* this.evalExpr(node.right as ESTree.Expression, env)
       this.writeMember(obj, key, value, target)
       return value
     }
@@ -1235,8 +1341,12 @@ export class Interpreter {
         const args = yield* this.evalArgs(node.arguments, env)
         return yield* this.runBuiltin(`Promise.${key}`, args, node, env, () => {
           if (key === 'resolve') {
+            const a = args[0]
+            // Promise.resolve(promise) returns the same promise (identity) — no
+            // new wrapper, no adoption ticks.
+            if (a instanceof Ref && !isNativeId(a.id) && isPromiseObject(this.heap.get(a))) return a
             const p = this.makePromise()
-            this.resolvePromise(p, args[0])
+            this.resolvePromise(p, a)
             return p
           }
           if (key === 'reject') {
@@ -1603,9 +1713,15 @@ export class Interpreter {
 
   private binary(op: string, l: RV, r: RV): RV {
     switch (op) {
-      case '+':
-        if (typeof l === 'string' || typeof r === 'string') return this.toStr(l) + this.toStr(r)
-        return this.toNum(l) + this.toNum(r)
+      case '+': {
+        // ToPrimitive both sides first: if either becomes a string, concatenate;
+        // otherwise add numerically. This is why `{} + 1` is "[object Object]1"
+        // and `"" + [1,2,3]` is "1,2,3".
+        const lp = this.toPrimitive(l)
+        const rp = this.toPrimitive(r)
+        if (typeof lp === 'string' || typeof rp === 'string') return this.toStr(lp) + this.toStr(rp)
+        return this.toNum(lp) + this.toNum(rp)
+      }
       case '-':
         return this.toNum(l) - this.toNum(r)
       case '*':
@@ -1625,13 +1741,10 @@ export class Interpreter {
       case '!=':
         return !this.looseEquals(l, r)
       case '<':
-        return this.compare(l, r) < 0
       case '>':
-        return this.compare(l, r) > 0
       case '<=':
-        return this.compare(l, r) <= 0
       case '>=':
-        return this.compare(l, r) >= 0
+        return this.relational(op as '<' | '>' | '<=' | '>=', l, r)
       case '&':
         return this.toNum(l) & this.toNum(r)
       case '|':
@@ -1645,7 +1758,9 @@ export class Interpreter {
       case '>>>':
         return this.toNum(l) >>> this.toNum(r)
       default:
-        throw new Error(`Unsupported operator: ${op}`)
+        // Safety net — `in`/`instanceof` are handled at the BinaryExpression
+        // level; anything else surfaces as a normal thrown error, not a leak.
+        throw this.makeThrow('SyntaxError', `Unsupported operator: ${op}`)
     }
   }
 
@@ -1656,16 +1771,49 @@ export class Interpreter {
   }
 
   private looseEquals(l: RV, r: RV): boolean {
-    if (l instanceof Ref || r instanceof Ref) return this.strictEquals(l, r)
+    const lRef = l instanceof Ref
+    const rRef = r instanceof Ref
+    // object == object → reference identity
+    if (lRef && rRef) return this.strictEquals(l, r)
+    if (lRef || rRef) {
+      const ref = lRef ? l : r
+      const other = lRef ? r : l
+      // object == null/undefined is false (no coercion); otherwise ToPrimitive
+      // the object and loose-compare, so `[1] == 1` is true and `{} == 1` false.
+      if (other === null || other === undefined) return false
+      return this.looseEquals(this.toPrimitive(ref), other)
+    }
     // both primitives — defer to JS loose equality
     return l == r
   }
 
-  private compare(l: RV, r: RV): number {
-    if (typeof l === 'string' && typeof r === 'string') return l < r ? -1 : l > r ? 1 : 0
-    const a = this.toNum(l)
-    const b = this.toNum(r)
-    return a < b ? -1 : a > b ? 1 : 0
+  /**
+   * Relational comparison. Strings compare lexically; otherwise both sides
+   * coerce to numbers. Computing each operator directly (rather than folding a
+   * 3-way ordering) means any `NaN` operand correctly yields `false`.
+   */
+  private relational(op: '<' | '>' | '<=' | '>=', l: RV, r: RV): boolean {
+    const lp = this.toPrimitive(l)
+    const rp = this.toPrimitive(r)
+    let a: number | string
+    let b: number | string
+    if (typeof lp === 'string' && typeof rp === 'string') {
+      a = lp
+      b = rp
+    } else {
+      a = this.toNum(lp)
+      b = this.toNum(rp)
+    }
+    switch (op) {
+      case '<':
+        return a < b
+      case '>':
+        return a > b
+      case '<=':
+        return a <= b
+      case '>=':
+        return a >= b
+    }
   }
 
   private truthy(v: RV): boolean {
@@ -1674,15 +1822,53 @@ export class Interpreter {
   }
 
   private toNum(v: RV): number {
-    if (v instanceof Ref) return NaN
+    if (v instanceof Ref) {
+      const p = this.toPrimitive(v)
+      // Our refs ToPrimitive to a string; Number('')→0, Number('5')→5, else NaN.
+      return typeof p === 'string' ? Number(p) : NaN
+    }
     return Number(v)
   }
 
   private toStr(v: RV): string {
-    if (v instanceof Ref) return this.refRepr(v)
+    if (v instanceof Ref) return this.refToString(v)
     if (v === undefined) return 'undefined'
     if (v === null) return 'null'
     return String(v)
+  }
+
+  /**
+   * ToPrimitive for our value kinds. Primitives pass through; every heap ref
+   * converts to its string form (arrays join with ',', plain objects become
+   * "[object Object]"), matching JS's default ToPrimitive for `+`/`==`/relational.
+   */
+  private toPrimitive(v: RV): RV {
+    return v instanceof Ref ? this.refToString(v) : v
+  }
+
+  /** JS ToString for a heap ref (cycle-guarded for self-referential arrays). */
+  private refToString(ref: Ref, seen: Set<string> = new Set()): string {
+    if (isNativeId(ref.id)) return nativeName(ref.id)
+    const o = this.heap.get(ref)
+    if (o.kind === 'array') {
+      if (seen.has(ref.id)) return ''
+      seen.add(ref.id)
+      const out = o.elements
+        .map((el) =>
+          el === null || el === undefined
+            ? ''
+            : el instanceof Ref
+              ? this.refToString(el, seen)
+              : this.toStr(el),
+        )
+        .join(',')
+      seen.delete(ref.id)
+      return out
+    }
+    if (o.kind === 'object') return '[object Object]'
+    if (o.kind === 'function') return `ƒ ${o.name || 'anonymous'}`
+    if (o.kind === 'promise') return '[object Promise]'
+    return '{…}'
   }
 
   private jsTypeof(v: RV): string {
@@ -1691,6 +1877,23 @@ export class Interpreter {
     }
     if (v === null) return 'object'
     return typeof v
+  }
+
+  /** The `in` operator: is `key` a property of the object/array `obj`? */
+  private inOperator(key: RV, obj: RV, node: ESTree.Node): boolean {
+    if (!(obj instanceof Ref) || isNativeId(obj.id)) {
+      this.lastErrorNode = node
+      throw this.makeThrow('TypeError', "Cannot use 'in' operator to search in a non-object")
+    }
+    const o = this.heap.get(obj)
+    const k = this.toStr(key)
+    if (o.kind === 'object') return o.props.has(k)
+    if (o.kind === 'array') {
+      if (k === 'length') return true
+      const idx = Number(k)
+      return Number.isInteger(idx) && idx >= 0 && idx < o.elements.length
+    }
+    return false
   }
 
   // --- misc helpers ---------------------------------------------------------
@@ -1719,6 +1922,36 @@ export class Interpreter {
       id: `c${this.consoleCounter++}`,
       method: m,
       parts: args.map((a) => this.valueView(a)),
+      stepId: this.stepId,
+      nodeId: this.idOf(node),
+    })
+  }
+
+  /** Readable text for a value thrown out of a task/microtask callback. */
+  private uncaughtText(value: RV): string {
+    if (value instanceof Ref && !isNativeId(value.id)) {
+      const o = this.heap.get(value)
+      if (o.kind === 'object') {
+        const name = o.props.get('name')
+        const message = o.props.get('message')
+        if (name !== undefined || message !== undefined) {
+          return `${name ?? 'Error'}${message !== undefined ? `: ${message}` : ''}`
+        }
+      }
+      return this.refRepr(value)
+    }
+    return typeof value === 'string' ? value : this.primRepr(value)
+  }
+
+  /**
+   * Surface an uncaught error from a timer/microtask callback WITHOUT aborting
+   * the run — real engines report it to the host and keep the event loop going.
+   */
+  private reportUncaught(value: RV, node: ESTree.Node): void {
+    this.console.push({
+      id: `c${this.consoleCounter++}`,
+      method: 'error',
+      parts: [{ kind: 'primitive', type: 'string', repr: `Uncaught ${this.uncaughtText(value)}` }],
       stepId: this.stepId,
       nodeId: this.idOf(node),
     })
