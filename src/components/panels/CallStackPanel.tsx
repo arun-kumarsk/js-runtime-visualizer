@@ -18,7 +18,7 @@ export function CallStackPanel() {
   const ordered = [...frames].reverse() // top (current) first
 
   return (
-    <Panel title="Call Stack" tag="LIFO" accent="var(--color-stack)" badge={frames.length || undefined}>
+    <Panel title="Call Stack" tag="LIFO" accent="var(--color-stack)" badge={frames.length || undefined} region="stack">
       <div className="flex flex-col gap-1.5">
         <AnimatePresence initial={false}>
           {ordered.map((f, i) => {

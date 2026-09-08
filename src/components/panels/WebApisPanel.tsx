@@ -17,7 +17,7 @@ export function WebApisPanel() {
   const pendingWait = useVisualizerStore((s) => s.pendingWait)
 
   return (
-    <Panel title="Web APIs" accent="var(--color-webapi)" badge={timers.length || undefined}>
+    <Panel title="Web APIs" accent="var(--color-webapi)" badge={timers.length || undefined} region="webapis">
       {timers.length === 0 ? (
         <p className="text-xs italic text-ink-muted">No pending timers.</p>
       ) : (

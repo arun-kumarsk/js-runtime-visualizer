@@ -7,6 +7,7 @@ import { EventLoopDial } from '../panels/EventLoopDial'
 import { TaskQueuePanel } from '../panels/TaskQueuePanel'
 import { MicrotaskQueuePanel } from '../panels/MicrotaskQueuePanel'
 import { AstInspector } from '../panels/AstInspector'
+import { FlyingCallbacks } from '../panels/FlyingCallbacks'
 import { Scrubber } from '../controls/Scrubber'
 import { GuidedTip } from './GuidedTip'
 
@@ -59,6 +60,7 @@ export function Dock({ toolbar, editor }: DockProps) {
       {toolbar}
       <Scrubber />
       <GuidedTip />
+      <FlyingCallbacks />
       <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(320px,2fr)_3fr]">
         <div className="flex min-h-[35vh] flex-col border-b border-edge bg-panel lg:min-h-0 lg:border-b-0 lg:border-r">
           <div className="min-h-0 flex-1 overflow-hidden">{editor}</div>

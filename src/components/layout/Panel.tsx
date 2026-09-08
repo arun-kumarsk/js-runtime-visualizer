@@ -10,6 +10,8 @@ interface PanelProps {
   tag?: string
   /** Right-aligned content in the header (e.g. a count badge). */
   badge?: ReactNode
+  /** Event-loop region id (`data-region`) — an anchor for flying-callback motion. */
+  region?: string
   /** Start collapsed. */
   defaultCollapsed?: boolean
   className?: string
@@ -25,6 +27,7 @@ export function Panel({
   accent,
   tag,
   badge,
+  region,
   defaultCollapsed = false,
   className,
   children,
@@ -33,6 +36,7 @@ export function Panel({
 
   return (
     <section
+      data-region={region}
       className={cn(
         'flex min-h-0 flex-col overflow-hidden rounded-lg border border-edge bg-panel shadow-sm',
         className,

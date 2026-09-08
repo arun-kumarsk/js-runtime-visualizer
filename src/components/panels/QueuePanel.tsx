@@ -10,15 +10,17 @@ interface QueuePanelProps {
   items: TaskView[]
   /** FIFO direction hint shown when there are items. */
   hint?: string
+  /** Event-loop region id, for flying-callback anchoring. */
+  region?: string
 }
 
 /**
  * A FIFO queue of callbacks (used for both the macrotask and microtask queues).
  * Items animate in at the back and out from the front, so you can see ordering.
  */
-export function QueuePanel({ title, accent, items, hint }: QueuePanelProps) {
+export function QueuePanel({ title, accent, items, hint, region }: QueuePanelProps) {
   return (
-    <Panel title={title} tag="FIFO" accent={accent} badge={items.length || undefined}>
+    <Panel title={title} tag="FIFO" accent={accent} badge={items.length || undefined} region={region}>
       {items.length === 0 ? (
         <p className="text-xs italic text-ink-muted">empty</p>
       ) : (

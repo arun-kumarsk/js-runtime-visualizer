@@ -16,6 +16,7 @@ export function MicrotaskQueuePanel() {
       accent="var(--color-microtask)"
       items={items}
       hint="drains fully before the next macrotask ↓"
+      region="microq"
     />
   )
 }

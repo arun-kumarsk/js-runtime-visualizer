@@ -13,6 +13,7 @@ export function TaskQueuePanel() {
       accent="var(--color-macrotask)"
       items={items}
       hint="front runs next ↓"
+      region="callbackq"
     />
   )
 }
