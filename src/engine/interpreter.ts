@@ -1414,7 +1414,6 @@ export class Interpreter {
       returning: false,
     }
     this.callStack.push(frame)
-    yield* this.emit('call', node, env)
     let result: RV
     try {
       result = exec()
@@ -1422,6 +1421,8 @@ export class Interpreter {
       this.callStack.pop()
       throw e
     }
+    // A built-in runs in a single combined step: it briefly appears on the call
+    // stack (with its result) rather than emitting separate call + return steps.
     frame.returnValue = result
     frame.returning = true
     yield* this.emit('return', node, env)

@@ -315,6 +315,16 @@ describe('event loop (setTimeout)', () => {
     expect(fnNames).toContain('setTimeout')
   })
 
+  it('runs a built-in call in a single combined step', () => {
+    const r = runProgram(`console.log('a')`)
+    expect(r.error).toBeNull()
+    // Exactly one snapshot has console.log on the stack (no separate call+return).
+    const withLog = r.snapshots.filter((s) =>
+      s.callStack.some((f) => f.fnName === 'console.log'),
+    )
+    expect(withLog).toHaveLength(1)
+  })
+
   it('tags callback execution as the macrotask phase', () => {
     const r = runProgram(`setTimeout(() => console.log('hi'), 0)`)
     expect(r.snapshots.some((s) => s.phase === 'sync')).toBe(true)
