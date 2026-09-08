@@ -54,11 +54,20 @@ body {
 
 /* Current-execution highlight in the editor */
 .cm-exec-line {
-  background: color-mix(in oklab, var(--color-accent) 13%, transparent);
+  background: color-mix(in oklab, var(--color-accent) 20%, transparent);
+  /* an accent bar down the left edge so the executing line is unmistakable */
+  box-shadow: inset 3px 0 0 0 var(--color-accent);
 }
 .cm-exec-expr {
-  background: color-mix(in oklab, var(--color-accent) 32%, transparent);
-  border-radius: 2px;
+  background: color-mix(in oklab, var(--color-accent) 45%, transparent);
+  border-radius: 3px;
+  outline: 1px solid color-mix(in oklab, var(--color-accent) 75%, transparent);
+  animation: exec-expr-pop 0.35s ease-out;
+}
+@keyframes exec-expr-pop {
+  from {
+    background: color-mix(in oklab, var(--color-accent) 75%, transparent);
+  }
 }
 
 /* Breakpoint gutter */

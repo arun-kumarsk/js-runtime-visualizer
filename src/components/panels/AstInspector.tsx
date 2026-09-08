@@ -28,7 +28,8 @@ function AstRow({ node, depth, activeId, selectedId, onSelect }: RowProps) {
         onClick={() => onSelect(node)}
         className={cn(
           'flex w-full items-center gap-1 rounded px-1 py-0.5 text-left font-mono text-xs hover:bg-panel-muted',
-          isActive && 'bg-[color-mix(in_oklab,var(--color-accent)_22%,transparent)]',
+          isActive &&
+            'bg-[color-mix(in_oklab,var(--color-accent)_28%,transparent)] font-medium shadow-[inset_3px_0_0_0_var(--color-accent)]',
           isSelected && !isActive && 'bg-panel-muted',
         )}
         style={{ paddingLeft: `${depth * 12 + 4}px` }}

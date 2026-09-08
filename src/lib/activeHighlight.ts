@@ -16,8 +16,8 @@ export function activeItem(accent: string): { className: string; style: CSSPrope
     style: {
       borderColor: accent,
       borderLeftColor: accent,
-      background: `color-mix(in oklab, ${accent} 22%, var(--color-panel))`,
-      boxShadow: `0 0 0 1px color-mix(in oklab, ${accent} 45%, transparent)`,
+      background: `color-mix(in oklab, ${accent} 26%, var(--color-panel))`,
+      boxShadow: `0 0 0 1.5px color-mix(in oklab, ${accent} 55%, transparent)`,
     },
   }
 }
