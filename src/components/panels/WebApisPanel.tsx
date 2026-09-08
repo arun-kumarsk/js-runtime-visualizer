@@ -39,7 +39,6 @@ export function WebApisPanel() {
               >
                 <div className="flex items-baseline justify-between gap-2 font-mono text-xs">
                   <span>
-                    <span className="text-ink-muted">{t.label}</span>{' '}
                     <span className="font-semibold text-ink">
                       <span
                         className="font-serif italic"
@@ -48,7 +47,8 @@ export function WebApisPanel() {
                         ƒ
                       </span>{' '}
                       {t.callbackName}
-                    </span>
+                    </span>{' '}
+                    <span className="text-ink-muted">({t.label})</span>
                   </span>
                   <span className="shrink-0 text-[var(--color-webapi)]">{t.delay}ms</span>
                 </div>

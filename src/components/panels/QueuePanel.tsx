@@ -47,13 +47,13 @@ export function QueuePanel({ title, accent, items, hint, region }: QueuePanelPro
                   >
                     {i + 1}
                   </span>
-                  <span className="text-ink-muted">{item.label}</span>
                   <span className="font-semibold text-ink">
                     <span className="font-serif italic" style={next ? { color: accent } : undefined}>
                       ƒ
                     </span>{' '}
                     {item.callbackName}
                   </span>
+                  <span className="text-ink-muted">({item.label})</span>
                 </motion.div>
               )
             })}
