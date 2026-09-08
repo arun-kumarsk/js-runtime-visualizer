@@ -41,37 +41,38 @@ function anchor(region: string): Point | null {
 export function FlyingCallbacks() {
   const snap = useCurrentSnapshot()
   const index = useVisualizerStore((s) => s.index)
+  const snapshots = useVisualizerStore((s) => s.snapshots)
 
   // A flight is a pure function of the current step. The panels don't move, so
   // reading their positions here (committed layout) is stable.
   const flight = useMemo<Flight | null>(() => {
     if (!snap) return null
+    const prev = index > 0 ? snapshots[index - 1] : undefined
     let src: string | null = null
     let dst: string | null = null
     let label = ''
     let color = ''
-    if (snap.kind === 'timer' && snap.webApis[0]) {
+    // A queued callback lands on the stack: fire the flight on the `call` step
+    // where the frame actually appears — so the pop-out (queue) and pop-in
+    // (stack) happen together in this single step, bridged by the token.
+    if (snap.kind === 'call' && (prev?.kind === 'task' || prev?.kind === 'microtask')) {
+      src = prev.kind === 'task' ? 'callbackq' : 'microq'
+      dst = 'stack'
+      label = snap.callStack[snap.callStack.length - 1]?.fnName || 'callback'
+      color = src === 'callbackq' ? REGION_COLOR.callbackq : REGION_COLOR.microq
+    } else if (snap.kind === 'timer' && snap.webApis[0]) {
+      // A timer elapses: it moves from Web APIs into the callback queue.
       src = 'webapis'
       dst = 'callbackq'
       label = snap.webApis[0].callbackName
       color = REGION_COLOR.callbackq
-    } else if (snap.kind === 'task' && snap.macrotaskQueue[0]) {
-      src = 'callbackq'
-      dst = 'stack'
-      label = snap.macrotaskQueue[0].callbackName
-      color = REGION_COLOR.callbackq
-    } else if (snap.kind === 'microtask' && snap.microtaskQueue[0]) {
-      src = 'microq'
-      dst = 'stack'
-      label = snap.microtaskQueue[0].callbackName
-      color = REGION_COLOR.microq
     }
     if (!src || !dst) return null
     const from = anchor(src)
     const to = anchor(dst)
     if (!from || !to) return null
     return { key: index, from, to, label, color }
-  }, [index, snap])
+  }, [index, snap, snapshots])
 
   return (
     <div className="pointer-events-none fixed inset-0 z-40">
